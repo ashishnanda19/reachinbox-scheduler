@@ -11,11 +11,11 @@ no `setInterval`: every delay is a BullMQ delayed job.
 ## Contents
 
 1. [How to run](#how-to-run)
-2. [Ethereal Email and environment variables](#ethereal-email-and-environment-variables)
-3. [Architecture overview](#architecture-overview)
-4. [How scheduling works](#how-scheduling-works)
-5. [Persistence on restart, and no duplicates](#persistence-on-restart-and-no-duplicates)
-6. [Rate limiting and concurrency](#rate-limiting-and-concurrency)
+2. [Architecture overview](#architecture-overview)
+3. [How scheduling works](#how-scheduling-works)
+4. [Persistence on restart, and no duplicates](#persistence-on-restart-and-no-duplicates)
+5. [Rate limiting and concurrency](#rate-limiting-and-concurrency)
+6. [Ethereal Email and environment variables](#ethereal-email-and-environment-variables)
 7. [Features implemented](#features-implemented)
 8. [Tests and load test](#tests-and-load-test)
 9. [Assumptions and trade-offs](#assumptions-and-trade-offs)
@@ -53,6 +53,84 @@ npm run dev                           # http://localhost:5173
 
 Login uses Google OAuth, so add Google credentials first. A full walkthrough is in [Google and Slack setup](#google-and-slack-setup)
 below.
+
+## Architecture overview
+
+![System architecture](docs/system-design.png)
+
+The diagram is also available as an editable Excalidraw file: [docs/system-design.excalidraw](docs/system-design.excalidraw).
+
+In short:
+
+1. The user logs in with Google and schedules emails from the React dashboard.
+2. The Express API saves the campaign and each email in PostgreSQL.
+3. The API also adds one delayed job per email to a Redis queue (BullMQ).
+4. When a job is due, the worker claims the email, checks the sender's hourly limit and delay, and sends it through Ethereal.
+5. If the hourly limit is reached, the email is moved to the next hour and a Slack alert is sent.
+6. On every restart, a boot reconciler puts any missing jobs back in the queue from PostgreSQL.
+
+Each part has one job:
+
+- **PostgreSQL** stores the truth: every email, its status and its send time.
+- **Redis** decides when each job runs.
+- **The worker** treats a job only as a reminder. It re-reads the email from PostgreSQL and claims it before sending.
+
+## How scheduling works
+
+1. `POST /api/campaigns` validates the body (zod), sanitizes the HTML with `sanitize-html`, and in one Postgres
+   transaction inserts the campaign and one row per recipient. Recipient `i` is due at
+   `startTime + i * delayBetweenMs`, and senders are assigned round-robin.
+2. After the commit, each email is added to BullMQ with `delay = scheduled_at - now` and `jobId = email.id`.
+3. When a job becomes due the worker, in order:
+   1. **Claims** the row (`scheduled` to `processing`) with a single conditional `UPDATE`. If it matches no row
+      (already sent, cancelled, or claimed by another worker) the job exits quietly.
+   2. Consumes one slot from the **hourly limiter**. If the sender's limit is reached the email is rescheduled
+      (see below).
+   3. Checks the **per-sender gate** (`SET key NX PX minDelay`). If the sender sent too recently, the hourly slot is
+      refunded, the row is released back to `scheduled`, and the job is moved back to delayed with `moveToDelayed`
+      and `DelayedError`. The worker never sleeps and holds no concurrency slot while waiting.
+   4. Sends through Nodemailer (HTML plus text alternative plus attachments), then marks the row `sent` and stores
+      the Ethereal preview URL.
+4. A failing send is retried by BullMQ with exponential backoff (`EMAIL_JOB_ATTEMPTS`, `EMAIL_JOB_BACKOFF_MS`); after the
+   last attempt the row becomes `failed` with the error text.
+
+A user can cancel a scheduled email from its detail page. Cancel is an atomic `DELETE ... WHERE status='scheduled'`, so
+it can never race with a send: exactly one of "cancelled" and "claimed" wins (covered by a test that races them).
+
+## Persistence on restart, and no duplicates
+
+| Failure | What happens |
+|---|---|
+| API or worker killed (`kill -9`) while emails are delayed | Delayed jobs live in Redis (AOF, `appendfsync everysec`). On boot the process resumes and sends them on time. |
+| Killed in the middle of a send | The row is left `processing`. After `STALE_PROCESSING_MS` another worker takes the claim over; until then the job is deferred, not dropped. |
+| Redis data lost | The boot reconciler (`scheduler/reconcile.ts`) finds `scheduled` rows with no job and re-enqueues them, and resets stale `processing` claims. |
+| Same job delivered twice | The claim `UPDATE ... RETURNING` lets exactly one caller proceed. Tested with 25 parallel claims. |
+| Same email enqueued twice | `jobId = email id` makes the second `add` a no-op. |
+
+Recovery was exercised for real, not only in unit tests: `kill -9` with 20 emails pending, a Redis wipe, and a
+1000-email load test, each ending with SQL counts that add up (nothing lost, nothing sent twice).
+
+The one honest edge: if the process dies after SMTP accepted a message but before the row is marked `sent`, the claim
+eventually goes stale and the email is sent again. Exactly-once delivery across an SMTP server and a database is not
+possible without the provider's cooperation; this design chooses at-least-once with a very small window over losing mail.
+
+## Rate limiting and concurrency
+
+- **Window.** The hourly window is `floor(epochMs / 3_600_000)` in UTC, so every process agrees on it without coordination.
+- **Limiter.** A Lua script (`INCR` plus `EXPIRE`, and `DECR` when the limit is exceeded) runs atomically in Redis, so
+  concurrent workers cannot overshoot the limit. The effective limit is `min(campaign hourly limit, MAX_EMAILS_PER_HOUR_PER_SENDER)`.
+- **When the limit is hit.** The email is not failed and not slept on. Its `scheduled_at` moves to the start of the
+  next window (or later, ranked by position among the same campaign and sender so order is preserved and a later
+  window is not overfilled), the job is re-delayed, and the row stays `scheduled`.
+- **Spacing.** The campaign's "Delay between 2 emails" sets each email's `scheduled_at` (`startTime + i * delay`).
+  On top of that, a per-sender gate enforces `MIN_DELAY_BETWEEN_EMAILS_MS` between two sends of the same sender,
+  across all workers. A gate deferral refunds the hourly slot, so it never burns the limit. Different senders are
+  independent, so throughput scales with the number of senders.
+- **Concurrency.** `WORKER_CONCURRENCY` jobs run in parallel in one worker; you can also run several worker processes,
+  because every shared decision (claim, gate, limiter) is atomic in Postgres or Redis.
+- **Slack alert.** When a sender is limited, one message is posted per sender per hour window (deduped in Redis with
+  `slack-notified:{sender}:{window}`). It is only claimed if the user has Slack connected, so connecting mid-window
+  still gets the next alert.
 
 ## Ethereal Email and environment variables
 
@@ -120,78 +198,6 @@ app, open the user menu, click **Connect Slack** and choose a channel.
   "settings": { "org_deploy_enabled": false, "socket_mode_enabled": false, "token_rotation_enabled": false }
 }
 ```
-
-## Architecture overview
-
-![System design](docs/system-design.png)
-
-The diagram is also available as an editable Excalidraw file: [docs/system-design.excalidraw](docs/system-design.excalidraw).
-
-Responsibilities are split on purpose:
-
-- **PostgreSQL decides what is true.** Every email has a status (`scheduled`, `processing`, `sent`, `failed`), a
-  `scheduled_at`, attempts, and the Ethereal preview URL.
-- **Redis decides when it runs.** BullMQ holds the delayed jobs. Losing Redis loses timing, never data, because the boot
-  reconciler rebuilds the queue from Postgres.
-- **The worker never trusts the queue.** A job is only a hint that an email is due. The worker re-reads the row and claims it
-  atomically before doing anything.
-
-## How scheduling works
-
-1. `POST /api/campaigns` validates the body (zod), sanitizes the HTML with `sanitize-html`, and in one Postgres
-   transaction inserts the campaign and one row per recipient. Recipient `i` is due at
-   `startTime + i * delayBetweenMs`, and senders are assigned round-robin.
-2. After the commit, each email is added to BullMQ with `delay = scheduled_at - now` and `jobId = email.id`.
-3. When a job becomes due the worker, in order:
-   1. **Claims** the row (`scheduled` to `processing`) with a single conditional `UPDATE`. If it matches no row
-      (already sent, cancelled, or claimed by another worker) the job exits quietly.
-   2. Consumes one slot from the **hourly limiter**. If the sender's limit is reached the email is rescheduled
-      (see below).
-   3. Checks the **per-sender gate** (`SET key NX PX minDelay`). If the sender sent too recently, the hourly slot is
-      refunded, the row is released back to `scheduled`, and the job is moved back to delayed with `moveToDelayed`
-      and `DelayedError`. The worker never sleeps and holds no concurrency slot while waiting.
-   4. Sends through Nodemailer (HTML plus text alternative plus attachments), then marks the row `sent` and stores
-      the Ethereal preview URL.
-4. A failing send is retried by BullMQ with exponential backoff (`EMAIL_JOB_ATTEMPTS`, `EMAIL_JOB_BACKOFF_MS`); after the
-   last attempt the row becomes `failed` with the error text.
-
-A user can cancel a scheduled email from its detail page. Cancel is an atomic `DELETE ... WHERE status='scheduled'`, so
-it can never race with a send: exactly one of "cancelled" and "claimed" wins (covered by a test that races them).
-
-## Persistence on restart, and no duplicates
-
-| Failure | What happens |
-|---|---|
-| API or worker killed (`kill -9`) while emails are delayed | Delayed jobs live in Redis (AOF, `appendfsync everysec`). On boot the process resumes and sends them on time. |
-| Killed in the middle of a send | The row is left `processing`. After `STALE_PROCESSING_MS` another worker takes the claim over; until then the job is deferred, not dropped. |
-| Redis data lost | The boot reconciler (`scheduler/reconcile.ts`) finds `scheduled` rows with no job and re-enqueues them, and resets stale `processing` claims. |
-| Same job delivered twice | The claim `UPDATE ... RETURNING` lets exactly one caller proceed. Tested with 25 parallel claims. |
-| Same email enqueued twice | `jobId = email id` makes the second `add` a no-op. |
-
-Recovery was exercised for real, not only in unit tests: `kill -9` with 20 emails pending, a Redis wipe, and a
-1000-email load test, each ending with SQL counts that add up (nothing lost, nothing sent twice).
-
-The one honest edge: if the process dies after SMTP accepted a message but before the row is marked `sent`, the claim
-eventually goes stale and the email is sent again. Exactly-once delivery across an SMTP server and a database is not
-possible without the provider's cooperation; this design chooses at-least-once with a very small window over losing mail.
-
-## Rate limiting and concurrency
-
-- **Window.** The hourly window is `floor(epochMs / 3_600_000)` in UTC, so every process agrees on it without coordination.
-- **Limiter.** A Lua script (`INCR` plus `EXPIRE`, and `DECR` when the limit is exceeded) runs atomically in Redis, so
-  concurrent workers cannot overshoot the limit. The effective limit is `min(campaign hourly limit, MAX_EMAILS_PER_HOUR_PER_SENDER)`.
-- **When the limit is hit.** The email is not failed and not slept on. Its `scheduled_at` moves to the start of the
-  next window (or later, ranked by position among the same campaign and sender so order is preserved and a later
-  window is not overfilled), the job is re-delayed, and the row stays `scheduled`.
-- **Spacing.** The campaign's "Delay between 2 emails" sets each email's `scheduled_at` (`startTime + i * delay`).
-  On top of that, a per-sender gate enforces `MIN_DELAY_BETWEEN_EMAILS_MS` between two sends of the same sender,
-  across all workers. A gate deferral refunds the hourly slot, so it never burns the limit. Different senders are
-  independent, so throughput scales with the number of senders.
-- **Concurrency.** `WORKER_CONCURRENCY` jobs run in parallel in one worker; you can also run several worker processes,
-  because every shared decision (claim, gate, limiter) is atomic in Postgres or Redis.
-- **Slack alert.** When a sender is limited, one message is posted per sender per hour window (deduped in Redis with
-  `slack-notified:{sender}:{window}`). It is only claimed if the user has Slack connected, so connecting mid-window
-  still gets the next alert.
 
 ## Features implemented
 
