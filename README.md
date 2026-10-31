@@ -270,10 +270,6 @@ Google and Slack mocked, HTML sanitizing, search with the SQL fallback, and the 
 per sender and writes `docs/load-test-output.txt`. In the committed run: 15 sent in the first window (3 senders x 5), 985
 rescheduled across later windows, 0 lost, 0 failed, one Slack alert per sender.
 
-The frontend was checked against the design screenshots in `docs/figma/`: `npm run screenshots` renders each screen at
-1600x1000 and writes reference, render and diff sheets to `docs/figma-compare/`. `docs/walkthrough/` holds the
-end-to-end browser run (compose, scheduled, sent, detail, search).
-
 ## Assumptions and trade-offs
 
 - **Ethereal, not real SMTP.** Each user gets Ethereal test accounts, so no email leaves the sandbox. Swapping in a real SMTP
@@ -307,7 +303,7 @@ backend/
   scripts/                 migrate, load-test, token (test tooling)
 frontend/
   src/                     pages, components, api client, hooks (React + Tailwind)
-  scripts/                 screenshots.ts (design comparison), walkthrough.ts (e2e run)
-docs/                      design references, comparison sheets, walkthrough, load test output
+  scripts/                 walkthrough.ts (end-to-end browser run)
+docs/                      load test output
 docker-compose.yml         Postgres, Redis (AOF), Elasticsearch
 ```
