@@ -1,0 +1,28 @@
+name,email
+Lead 1,lead01.mvvcsj9s@example.com
+Lead 2,lead02.mvvcsj9s@example.com
+Lead 3,lead03.mvvcsj9s@example.com
+Lead 4,lead04.mvvcsj9s@example.com
+Lead 5,lead05.mvvcsj9s@example.com
+Lead 6,lead06.mvvcsj9s@example.com
+Lead 7,lead07.mvvcsj9s@example.com
+Lead 8,lead08.mvvcsj9s@example.com
+Lead 9,lead09.mvvcsj9s@example.com
+Lead 10,lead10.mvvcsj9s@example.com
+Lead 11,lead11.mvvcsj9s@example.com
+Lead 12,lead12.mvvcsj9s@example.com
+Lead 13,lead13.mvvcsj9s@example.com
+Lead 14,lead14.mvvcsj9s@example.com
+Lead 15,lead15.mvvcsj9s@example.com
+Lead 16,lead16.mvvcsj9s@example.com
+Lead 17,lead17.mvvcsj9s@example.com
+Lead 18,lead18.mvvcsj9s@example.com
+Lead 19,lead19.mvvcsj9s@example.com
+Lead 20,lead20.mvvcsj9s@example.com
+Lead 21,lead21.mvvcsj9s@example.com
+Lead 22,lead22.mvvcsj9s@example.com
+Lead 23,lead23.mvvcsj9s@example.com
+Lead 24,lead24.mvvcsj9s@example.com
+Lead 25,lead25.mvvcsj9s@example.com
+Dup,lead01.mvvcsj9s@example.com
+Broken,not-an-email@
