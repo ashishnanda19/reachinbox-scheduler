@@ -4,7 +4,7 @@ services:
   - type: web
     name: reachinbox-scheduler
     runtime: docker
-    plan: starter # an always-on instance; a sleeping service would not send scheduled emails on time
+    plan: free # sleeps after 15 min without traffic; ping /health every 10 min to keep the worker running (see README)
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -33,11 +33,11 @@ services:
 
   - type: keyvalue
     name: reachinbox-redis
-    plan: starter
+    plan: free
     maxmemoryPolicy: noeviction # BullMQ needs this: Redis must never evict job data
     ipAllowList: []
 
 databases:
   - name: reachinbox-db
-    plan: basic-256mb
+    plan: free
     databaseName: reachinbox

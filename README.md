@@ -271,9 +271,12 @@ services. Elasticsearch is left out; search falls back to SQL.
    `https://<your-service>.onrender.com/api/slack/callback` to the Slack app's redirect URLs.
 4. The container runs the migrations on start, then the server. `GET /health` is the health check.
 
-Use an always-on instance: a service that sleeps does not run its worker, so scheduled emails would only go out after it wakes
-(the boot reconciler then re-enqueues them from Postgres, so none are lost, only late). Postgres is the source of truth, so even a
-Redis instance that loses its data is repaired on the next boot.
+`render.yaml` uses Render's free plans. Two limits apply: the free web service sleeps after 15 minutes without traffic, and the free
+Postgres database expires after 30 days. A sleeping service does not run its worker, so keep it awake by pinging
+`https://<your-service>.onrender.com/health` every 10 minutes with a free monitor such as UptimeRobot or cron-job.org. If it does
+sleep, nothing is lost: the boot reconciler re-enqueues every scheduled email from Postgres when it wakes, so they only go out late.
+The same reconciler repairs a free Redis instance that loses its data. For anything long-lived, switch the three `plan:` lines to
+paid plans.
 
 ## Tests and load test
 
