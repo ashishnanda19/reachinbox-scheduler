@@ -11,6 +11,22 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: WORKER_CONCURRENCY
+        value: "5"
+      - key: MIN_DELAY_BETWEEN_EMAILS_MS
+        value: "2000"
+      - key: MAX_EMAILS_PER_HOUR_PER_SENDER
+        value: "200"
+      - key: EMAIL_JOB_ATTEMPTS
+        value: "3"
+      - key: EMAIL_JOB_BACKOFF_MS
+        value: "5000"
+      - key: STALE_PROCESSING_MS
+        value: "120000"
+      - key: MAX_RECIPIENTS_PER_CAMPAIGN
+        value: "5000"
+      - key: DEFAULT_SENDER_COUNT
+        value: "3"
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
