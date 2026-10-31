@@ -29,6 +29,8 @@ const envSchema = z.object({
   PORT: integer.pipe(z.number().min(1).max(65535)).default('4000'),
   BACKEND_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
+  // Directory with the built frontend. When set, the API serves it too (one origin, so the session cookie works).
+  STATIC_DIR: z.string().default(''),
   JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
 
   DATABASE_URL: z.string().min(1),
@@ -56,7 +58,10 @@ const envSchema = z.object({
 export type Config = z.infer<typeof envSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const result = envSchema.safeParse(env);
+  // Render injects the service's public URL; use it unless the URLs are set explicitly.
+  const publicUrl = env.RENDER_EXTERNAL_URL;
+  const withDefaults = publicUrl ? { BACKEND_URL: publicUrl, FRONTEND_URL: publicUrl, ...env } : env;
+  const result = envSchema.safeParse(withDefaults);
   if (result.success) return result.data;
 
   const lines = result.error.issues.map(

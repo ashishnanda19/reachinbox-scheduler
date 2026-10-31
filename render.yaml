@@ -1,0 +1,43 @@
+# Render Blueprint: one web service (API + worker + frontend), Postgres and Redis.
+# Dashboard: New > Blueprint > pick this repo. Fill in the secrets marked "sync: false" when asked.
+services:
+  - type: web
+    name: reachinbox-scheduler
+    runtime: docker
+    plan: starter # an always-on instance; a sleeping service would not send scheduled emails on time
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reachinbox-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: reachinbox-redis
+          property: connectionString
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+
+  - type: keyvalue
+    name: reachinbox-redis
+    plan: starter
+    maxmemoryPolicy: noeviction # BullMQ needs this: Redis must never evict job data
+    ipAllowList: []
+
+databases:
+  - name: reachinbox-db
+    plan: basic-256mb
+    databaseName: reachinbox

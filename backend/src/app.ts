@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type Express } from 'express';
@@ -32,7 +34,15 @@ export function createApp(): Express {
 
   // same-site: the app (e.g. :5173) and the API (:4000) are different origins of the same site, and the app embeds
   // attachment thumbnails from the API. The default (same-origin) would block them.
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
+  // img-src allows https: because Google profile pictures are loaded from googleusercontent.com.
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'same-site' },
+      contentSecurityPolicy: {
+        directives: { 'img-src': ["'self'", 'data:', 'blob:', 'https:'] },
+      },
+    }),
+  );
   app.use(cors({ origin: config.FRONTEND_URL, credentials: true, methods: ['GET', 'POST', 'DELETE'] }));
   app.use(cookieParser());
   // 5000 recipients is ~150KB, over express's 100kb default. Campaign creation can carry base64 attachments
@@ -72,6 +82,15 @@ export function createApp(): Express {
   app.use('/api/stats', statsRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/queue', queueRouter);
+
+  // Production: serve the built frontend from the same origin, with index.html as the fallback for client routes.
+  if (config.STATIC_DIR && existsSync(config.STATIC_DIR)) {
+    const root = path.resolve(config.STATIC_DIR);
+    app.use(express.static(root));
+    app.get(/^\/(?!api\/|admin\/|health$).*/, (_req, res) => {
+      res.sendFile(path.join(root, 'index.html'));
+    });
+  }
 
   const onError: ErrorRequestHandler = (err, _req, res, _next) => {
     // body-parser errors carry their own 4xx status (413 payload too large, 400 malformed JSON).

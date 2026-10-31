@@ -20,9 +20,10 @@ duplicating a single email. There is no cron and no `setInterval` anywhere: ever
 7. [Configuration](#configuration)
 8. [Google and Slack setup](#google-and-slack-setup)
 9. [Trying it end to end](#trying-it-end-to-end)
-10. [Tests and load test](#tests-and-load-test)
-11. [Assumptions and trade-offs](#assumptions-and-trade-offs)
-12. [Project layout](#project-layout)
+10. [Deploying to the web](#deploying-to-the-web)
+11. [Tests and load test](#tests-and-load-test)
+12. [Assumptions and trade-offs](#assumptions-and-trade-offs)
+13. [Project layout](#project-layout)
 
 ## Quick start
 
@@ -256,6 +257,24 @@ RATE LIMIT sender=<id> window=498168 rescheduled a7@example.com to 2026-10-31T01
 SLACK alert sent for yrn6mm3ae2l4ae6x@ethereal.email
 ```
 
+## Deploying to the web
+
+The repo ships a `Dockerfile` and a Render Blueprint (`render.yaml`). One container runs the API, the worker and the built
+frontend, so the browser talks to a single origin and the `SameSite=Lax` session cookie works. Postgres and Redis are managed
+services. Elasticsearch is left out; search falls back to SQL.
+
+1. Push the repo to GitHub, then in Render choose **New > Blueprint** and select it. Render creates the web service, a Postgres
+   database and a Redis instance (`maxmemoryPolicy: noeviction`, which BullMQ needs).
+2. When asked, fill in `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`.
+   `JWT_SECRET` is generated for you, and `BACKEND_URL` / `FRONTEND_URL` default to the service's public URL.
+3. Add `https://<your-service>.onrender.com/api/auth/google/callback` to the Google OAuth client and
+   `https://<your-service>.onrender.com/api/slack/callback` to the Slack app's redirect URLs.
+4. The container runs the migrations on start, then the server. `GET /health` is the health check.
+
+Use an always-on instance: a service that sleeps does not run its worker, so scheduled emails would only go out after it wakes
+(the boot reconciler then re-enqueues them from Postgres, so none are lost, only late). Postgres is the source of truth, so even a
+Redis instance that loses its data is repaired on the next boot.
+
 ## Tests and load test
 
 ```bash
@@ -306,4 +325,5 @@ frontend/
   scripts/                 walkthrough.ts (end-to-end browser run)
 docs/                      load test output
 docker-compose.yml         Postgres, Redis (AOF), Elasticsearch
+Dockerfile, render.yaml    single-image production build and Render Blueprint
 ```
