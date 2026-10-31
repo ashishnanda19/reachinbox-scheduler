@@ -1,0 +1,102 @@
+ReachInbox scheduler load test
+==============================
+started            2026-10-30 18:39:40 UTC
+recipients         1000, all due now, delayBetweenMs=0, hourlyLimit=5
+config             MAX_EMAILS_PER_HOUR_PER_SENDER=200 WORKER_CONCURRENCY=5 MIN_DELAY_BETWEEN_EMAILS_MS=2000
+campaign           471c7dfb-ef11-49b3-b40a-8dabe02d527c (1000 emails, enqueued=true)
+waiting 30s for the worker...
+
+snapshot at        2026-10-30 18:40:12 UTC (current window 2026-10-30 18:00:00 UTC)
+
+Status of the 1000 emails
+-------------------------
+sent            15
+scheduled      985
+processing       0
+failed           0
+total         1000   OK: nothing lost
+
+Sent in the current hour window, per sender (limit 5)
+----------------------------------------------------------
+gmrefbcnwr2wvv5h@ethereal.email    5   OK
+is6kgsw2zq7tz5jx@ethereal.email    5   OK
+xdfaj7xqn2z2xtzy@ethereal.email    5   OK
+
+Scheduled emails per future hour window
+---------------------------------------
+window start            emails  max per sender
+2026-10-30 19:00 UTC        27               9  (*)
+2026-10-30 20:00 UTC        15               5
+2026-10-30 21:00 UTC        14               5
+2026-10-30 22:00 UTC        15               5
+2026-10-30 23:00 UTC        15               5
+2026-10-31 00:00 UTC        15               5
+2026-10-31 01:00 UTC        15               5
+2026-10-31 02:00 UTC        15               5
+2026-10-31 03:00 UTC        15               5
+2026-10-31 04:00 UTC        14               5
+2026-10-31 05:00 UTC        14               5
+2026-10-31 06:00 UTC        14               5
+2026-10-31 07:00 UTC        15               5
+2026-10-31 08:00 UTC        14               5
+2026-10-31 09:00 UTC        15               5
+2026-10-31 10:00 UTC        15               5
+2026-10-31 11:00 UTC        15               5
+2026-10-31 12:00 UTC        15               5
+2026-10-31 13:00 UTC        15               5
+2026-10-31 14:00 UTC        15               5
+2026-10-31 15:00 UTC        14               5
+2026-10-31 16:00 UTC        15               5
+2026-10-31 17:00 UTC        15               5
+2026-10-31 18:00 UTC        15               5
+2026-10-31 19:00 UTC        14               5
+2026-10-31 20:00 UTC        15               5
+2026-10-31 21:00 UTC        15               5
+2026-10-31 22:00 UTC        15               5
+2026-10-31 23:00 UTC        15               5
+2026-11-01 00:00 UTC        15               5
+2026-11-01 01:00 UTC        15               5
+2026-11-01 02:00 UTC        15               5
+2026-11-01 03:00 UTC        15               5
+2026-11-01 04:00 UTC        15               5
+2026-11-01 05:00 UTC        15               5
+2026-11-01 06:00 UTC        15               5
+2026-11-01 07:00 UTC        15               5
+2026-11-01 08:00 UTC        15               5
+2026-11-01 09:00 UTC        14               5
+2026-11-01 10:00 UTC        15               5
+2026-11-01 11:00 UTC        15               5
+2026-11-01 12:00 UTC        15               5
+2026-11-01 13:00 UTC        15               5
+2026-11-01 14:00 UTC        15               5
+2026-11-01 15:00 UTC        15               5
+2026-11-01 16:00 UTC        15               5
+2026-11-01 17:00 UTC        14               5
+2026-11-01 18:00 UTC        15               5
+2026-11-01 19:00 UTC        15               5
+2026-11-01 20:00 UTC        15               5
+2026-11-01 21:00 UTC        14               5
+2026-11-01 22:00 UTC        15               5
+2026-11-01 23:00 UTC        15               5
+2026-11-02 00:00 UTC        14               5
+2026-11-02 01:00 UTC        15               5
+2026-11-02 02:00 UTC        15               5
+2026-11-02 03:00 UTC        14               5
+2026-11-02 04:00 UTC        15               5
+2026-11-02 05:00 UTC        15               5
+2026-11-02 06:00 UTC        15               5
+2026-11-02 07:00 UTC        15               5
+2026-11-02 08:00 UTC        15               5
+2026-11-02 09:00 UTC        15               5
+2026-11-02 10:00 UTC        15               5
+2026-11-02 11:00 UTC        15               5
+2026-11-02 12:00 UTC        10               4
+66 future windows hold 985 emails.
+(*) 1 window(s) are planned above 5/sender: emails displaced from the current window whose own slot had already passed. This is only the plan. The Redis limiter enforces the cap when each job runs and rolls any excess into the following window, so actual sends never exceed the limit.
+
+Server log (load4.log)
+---------------------------------
+RATE LIMIT lines (emails rescheduled)  985
+SLACK alerts sent (once per sender)        3
+SENT lines                             15
+GATE lines (min-delay deferrals)       3964
